@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Create uploads directory if it doesn't exist
@@ -37,6 +37,115 @@ try {
   process.exit(1);
 }
 
+// Job Management System
+interface TTSJob {
+  id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  text: string;
+  voiceName: string;
+  filename?: string;
+  outputFilename?: string;
+  downloadUrl?: string;
+  duration?: number;
+  fileSize?: number;
+  error?: string;
+  createdAt: Date;
+  startedAt?: Date;
+  completedAt?: Date;
+  progress?: number; // 0-100
+}
+
+interface JobQueue {
+  [jobId: string]: TTSJob;
+}
+
+// In-memory job storage (in production, use Redis or database)
+const jobs: JobQueue = {};
+const processingQueue: string[] = [];
+let isProcessing = false;
+
+// Generate unique job ID
+function generateJobId(): string {
+  return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+// Background job processor
+async function processJobQueue(): Promise<void> {
+  if (isProcessing || processingQueue.length === 0) {
+    return;
+  }
+
+  isProcessing = true;
+  const jobId = processingQueue.shift();
+  
+  if (!jobId || !jobs[jobId]) {
+    isProcessing = false;
+    return;
+  }
+
+  const job = jobs[jobId];
+  
+  try {
+    console.log(`🔄 Starting job ${jobId}: ${job.text.length} characters, voice: ${job.voiceName}`);
+    
+    // Update job status
+    job.status = 'processing';
+    job.startedAt = new Date();
+    job.progress = 10;
+
+    // Generate unique filename if not provided
+    const timestamp = Date.now();
+    const outputFilename = job.filename ? 
+      `${job.filename.replace(/\.[^/.]+$/, '')}.wav` : 
+      `tts_${timestamp}.wav`;
+    
+    const outputPath = path.join(uploadsDir, outputFilename);
+    job.outputFilename = outputFilename;
+    job.progress = 25;
+
+    // Convert text to speech
+    await tts.textToSpeech(job.text, {
+      voiceName: job.voiceName,
+      outputFile: outputPath
+    });
+
+    job.progress = 80;
+
+    // Get file stats
+    const stats = fs.statSync(outputPath);
+    const fileSizeKB = Math.round(stats.size / 1024 * 10) / 10;
+
+    // Calculate approximate duration (assuming 24kHz, 16-bit, mono)
+    const audioDataSize = stats.size - 44; // Subtract WAV header size
+    const durationSeconds = Math.round((audioDataSize / (24000 * 2)) * 10) / 10;
+
+    // Update job with results
+    job.status = 'completed';
+    job.completedAt = new Date();
+    job.downloadUrl = `/download/${outputFilename}`;
+    job.duration = durationSeconds;
+    job.fileSize = fileSizeKB;
+    job.progress = 100;
+
+    console.log(`✅ Job ${jobId} completed: ${outputFilename} (${fileSizeKB}KB, ~${durationSeconds}s)`);
+
+  } catch (error) {
+    console.error(`❌ Job ${jobId} failed:`, error);
+    job.status = 'failed';
+    job.completedAt = new Date();
+    job.error = error instanceof Error ? error.message : 'Unknown error';
+    job.progress = 0;
+  }
+
+  isProcessing = false;
+  
+  // Process next job in queue
+  setTimeout(() => processJobQueue(), 100);
+}
+
+// Start job processor
+setInterval(() => processJobQueue(), 1000);
+
 // Interfaces
 interface TTSRequest {
   text: string;
@@ -54,6 +163,14 @@ interface TTSResponse {
   fileSize?: number;
 }
 
+interface JobResponse {
+  success: boolean;
+  message: string;
+  jobId: string;
+  status: string;
+  estimatedTime?: string;
+}
+
 // Routes
 
 // Health check
@@ -61,7 +178,9 @@ app.get('/health', (req: Request, res: Response) => {
   res.json({
     status: 'healthy',
     timestamp: new Date().toISOString(),
-    availableVoices: tts.getAvailableVoices().length
+    availableVoices: tts.getAvailableVoices().length,
+    activeJobs: Object.values(jobs).filter(job => job.status === 'processing').length,
+    queuedJobs: processingQueue.length
   });
 });
 
@@ -83,7 +202,7 @@ app.get('/voices', (req: Request, res: Response) => {
   }
 });
 
-// Text-to-Speech conversion
+// Text-to-Speech conversion (Background Processing)
 app.post('/tts', async (req: Request, res: Response) => {
   try {
     const { text, voiceName = 'Kore', filename }: TTSRequest = req.body;
@@ -111,54 +230,205 @@ app.post('/tts', async (req: Request, res: Response) => {
       });
     }
 
-    // Generate unique filename if not provided
-    const timestamp = Date.now();
-    const outputFilename = filename ? 
-      `${filename.replace(/\.[^/.]+$/, '')}_${timestamp}.wav` : 
-      `tts_${timestamp}.wav`;
-    
-    const outputPath = path.join(uploadsDir, outputFilename);
-
-    console.log(`🎤 Processing TTS request: ${text.length} characters, voice: ${voiceName}`);
-
-    // Convert text to speech
-    await tts.textToSpeech(text, {
+    // Create job
+    const jobId = generateJobId();
+    const job: TTSJob = {
+      id: jobId,
+      status: 'pending',
+      text: text,
       voiceName: voiceName,
-      outputFile: outputPath
-    });
-
-    // Get file stats
-    const stats = fs.statSync(outputPath);
-    const fileSizeKB = Math.round(stats.size / 1024 * 10) / 10;
-
-    // Calculate approximate duration (assuming 24kHz, 16-bit, mono)
-    const audioDataSize = stats.size - 44; // Subtract WAV header size
-    const durationSeconds = Math.round((audioDataSize / (24000 * 2)) * 10) / 10;
-
-    const response: TTSResponse = {
-      success: true,
-      message: 'Text-to-speech conversion completed successfully',
-      filename: outputFilename,
-      downloadUrl: `/download/${outputFilename}`,
-      duration: durationSeconds,
-      fileSize: fileSizeKB
+      filename: filename,
+      createdAt: new Date(),
+      progress: 0
     };
 
-    console.log(`✅ TTS completed: ${outputFilename} (${fileSizeKB}KB, ~${durationSeconds}s)`);
+    // Store job and add to queue
+    jobs[jobId] = job;
+    processingQueue.push(jobId);
+
+    // Estimate processing time (rough calculation: ~1 second per 100 characters)
+    const estimatedSeconds = Math.max(5, Math.ceil(text.length / 100));
+    const estimatedTime = estimatedSeconds < 60 ? 
+      `${estimatedSeconds} seconds` : 
+      `${Math.ceil(estimatedSeconds / 60)} minutes`;
+
+    console.log(`📝 Job ${jobId} queued: ${text.length} characters, voice: ${voiceName}`);
+    console.log(`⏱️  Estimated processing time: ${estimatedTime}`);
+
+    const response: JobResponse = {
+      success: true,
+      message: 'TTS job queued successfully. Processing will begin shortly.',
+      jobId: jobId,
+      status: 'pending',
+      estimatedTime: estimatedTime
+    };
 
     res.json(response);
 
   } catch (error) {
-    console.error('❌ TTS Error:', error);
+    console.error('❌ TTS Job Creation Error:', error);
     res.status(500).json({
       success: false,
-      message: 'Text-to-speech conversion failed',
+      message: 'Failed to create TTS job',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
 });
 
-// Text-to-Speech with base64 response (for direct audio data)
+// Get job status
+app.get('/job/:jobId', (req: Request, res: Response) => {
+  try {
+    const jobId = req.params.jobId;
+    const job = jobs[jobId];
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    const response = {
+      success: true,
+      job: {
+        id: job.id,
+        status: job.status,
+        progress: job.progress || 0,
+        createdAt: job.createdAt,
+        startedAt: job.startedAt,
+        completedAt: job.completedAt,
+        filename: job.outputFilename,
+        downloadUrl: job.downloadUrl,
+        duration: job.duration,
+        fileSize: job.fileSize,
+        error: job.error,
+        textLength: job.text.length,
+        voiceName: job.voiceName
+      }
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Job Status Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get job status',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// List all jobs
+app.get('/jobs', (req: Request, res: Response) => {
+  try {
+    const { status, limit = 50 } = req.query;
+    
+    let jobList = Object.values(jobs);
+    
+    // Filter by status if provided
+    if (status && typeof status === 'string') {
+      jobList = jobList.filter(job => job.status === status);
+    }
+    
+    // Sort by creation date (newest first)
+    jobList.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    
+    // Limit results
+    const limitNum = parseInt(limit as string, 10);
+    if (limitNum > 0) {
+      jobList = jobList.slice(0, limitNum);
+    }
+
+    const response = {
+      success: true,
+      jobs: jobList.map(job => ({
+        id: job.id,
+        status: job.status,
+        progress: job.progress || 0,
+        createdAt: job.createdAt,
+        completedAt: job.completedAt,
+        filename: job.outputFilename,
+        downloadUrl: job.downloadUrl,
+        duration: job.duration,
+        fileSize: job.fileSize,
+        textLength: job.text.length,
+        voiceName: job.voiceName,
+        error: job.error
+      })),
+      count: jobList.length,
+      queueLength: processingQueue.length
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Jobs List Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get jobs list',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Cancel job
+app.delete('/job/:jobId', (req: Request, res: Response) => {
+  try {
+    const jobId = req.params.jobId;
+    const job = jobs[jobId];
+
+    if (!job) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    if (job.status === 'processing') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel job that is currently processing'
+      });
+    }
+
+    if (job.status === 'completed' || job.status === 'failed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot cancel completed or failed job'
+      });
+    }
+
+    // Remove from queue if pending
+    const queueIndex = processingQueue.indexOf(jobId);
+    if (queueIndex > -1) {
+      processingQueue.splice(queueIndex, 1);
+    }
+
+    // Update job status
+    job.status = 'failed';
+    job.error = 'Job cancelled by user';
+    job.completedAt = new Date();
+
+    console.log(`🚫 Job ${jobId} cancelled by user`);
+
+    res.json({
+      success: true,
+      message: 'Job cancelled successfully',
+      jobId: jobId
+    });
+
+  } catch (error) {
+    console.error('❌ Job Cancellation Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to cancel job',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Text-to-Speech with base64 response (for direct audio data) - SYNCHRONOUS
 app.post('/tts/base64', async (req: Request, res: Response) => {
   try {
     const { text, voiceName = 'Kore' }: TTSRequest = req.body;
@@ -310,25 +580,58 @@ app.get('/files', (req: Request, res: Response) => {
 app.get('/', (req: Request, res: Response) => {
   res.json({
     name: 'Gemini TTS API',
-    version: '1.0.0',
-    description: 'Text-to-Speech API using Google Gemini',
+    version: '2.0.0',
+    description: 'Text-to-Speech API using Google Gemini with Background Job Processing',
+    features: [
+      'Background job processing for large texts',
+      'Real-time job status tracking',
+      'Progress monitoring',
+      'Job cancellation',
+      'Multiple voice options (30 voices)',
+      'Support for 24 languages including Sinhala'
+    ],
     endpoints: {
       'GET /': 'API documentation',
-      'GET /health': 'Health check',
+      'GET /health': 'Health check with job queue status',
       'GET /voices': 'Get available voices',
-      'POST /tts': 'Convert text to speech (returns file info)',
-      'POST /tts/base64': 'Convert text to speech (returns base64 audio)',
+      'POST /tts': 'Queue text-to-speech job (background processing)',
+      'GET /job/:jobId': 'Get job status and progress',
+      'GET /jobs': 'List all jobs with filtering',
+      'DELETE /job/:jobId': 'Cancel pending job',
+      'POST /tts/base64': 'Convert text to speech (synchronous, returns base64 audio)',
       'GET /download/:filename': 'Download audio file',
       'GET /files': 'List generated audio files'
     },
     usage: {
-      'POST /tts': {
+      'POST /tts (Background)': {
+        description: 'Queue a TTS job for background processing. Returns immediately with job ID.',
         body: {
-          text: 'Text to convert to speech (required)',
+          text: 'Text to convert to speech (required, max 32,000 chars)',
           voiceName: 'Voice name (optional, default: Kore)',
           filename: 'Output filename (optional, auto-generated if not provided)'
+        },
+        response: {
+          jobId: 'Unique job identifier',
+          status: 'Job status (pending)',
+          estimatedTime: 'Estimated processing time'
+        }
+      },
+      'GET /job/:jobId': {
+        description: 'Check job status and get results when completed',
+        response: {
+          status: 'pending | processing | completed | failed',
+          progress: 'Progress percentage (0-100)',
+          downloadUrl: 'Download URL when completed',
+          duration: 'Audio duration in seconds',
+          fileSize: 'File size in KB'
         }
       }
+    },
+    jobStatuses: {
+      'pending': 'Job is queued and waiting to be processed',
+      'processing': 'Job is currently being processed',
+      'completed': 'Job completed successfully, audio file ready',
+      'failed': 'Job failed due to an error'
     }
   });
 });
@@ -345,18 +648,29 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
 
 // Start server
 app.listen(PORT, () => {
-  console.log('🚀 Gemini TTS API Server started');
+  console.log('🚀 Gemini TTS API Server v2.0 started with Background Job Processing');
   console.log(`📡 Server running on: http://localhost:${PORT}`);
   console.log(`🎵 Available voices: ${tts.getAvailableVoices().length}`);
   console.log(`📁 Upload directory: ${uploadsDir}`);
   console.log('');
   console.log('📖 API Endpoints:');
-  console.log(`   GET  http://localhost:${PORT}/          - API documentation`);
-  console.log(`   GET  http://localhost:${PORT}/health    - Health check`);
-  console.log(`   GET  http://localhost:${PORT}/voices    - Available voices`);
-  console.log(`   POST http://localhost:${PORT}/tts       - Text to speech`);
-  console.log(`   POST http://localhost:${PORT}/tts/base64 - Text to speech (base64)`);
-  console.log(`   GET  http://localhost:${PORT}/files     - List files`);
+  console.log(`   GET    http://localhost:${PORT}/              - API documentation`);
+  console.log(`   GET    http://localhost:${PORT}/health        - Health check + job queue status`);
+  console.log(`   GET    http://localhost:${PORT}/voices        - Available voices`);
+  console.log(`   POST   http://localhost:${PORT}/tts           - Queue TTS job (background)`);
+  console.log(`   GET    http://localhost:${PORT}/job/:jobId    - Get job status & progress`);
+  console.log(`   GET    http://localhost:${PORT}/jobs          - List all jobs`);
+  console.log(`   DELETE http://localhost:${PORT}/job/:jobId    - Cancel pending job`);
+  console.log(`   POST   http://localhost:${PORT}/tts/base64    - TTS (synchronous, base64)`);
+  console.log(`   GET    http://localhost:${PORT}/files         - List generated files`);
+  console.log(`   GET    http://localhost:${PORT}/download/:file - Download audio file`);
+  console.log('');
+  console.log('🔄 Background Processing Features:');
+  console.log('   ✅ Immediate response with job ID');
+  console.log('   ✅ Real-time progress tracking');
+  console.log('   ✅ Job status monitoring');
+  console.log('   ✅ Queue management');
+  console.log('   ✅ Job cancellation support');
   console.log('');
 });
 
