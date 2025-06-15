@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Clock, 
@@ -10,7 +10,9 @@ import {
   Eye,
   Calendar,
   User,
-  FileText
+  FileText,
+  Play,
+  Pause
 } from 'lucide-react';
 import { ttsApi } from '../services/api';
 import type { TTSJob } from '../types/api';
@@ -21,6 +23,9 @@ interface JobsListProps {
 }
 
 export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
+  const [playingJob, setPlayingJob] = useState<string | null>(null);
+  const [loadingAudio, setLoadingAudio] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const queryClient = useQueryClient();
 
   const cancelJobMutation = useMutation({
@@ -44,6 +49,61 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
     } catch (error) {
       console.error('Download failed:', error);
     }
+  };
+
+  const playJobAudio = async (job: TTSJob) => {
+    if (!job.filename) return;
+
+    try {
+      setLoadingAudio(job.id);
+
+      // Stop current audio if playing
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+
+      // Get audio blob from API
+      const blob = await ttsApi.downloadFile(job.filename);
+      const audioUrl = window.URL.createObjectURL(blob);
+
+      // Create and configure audio element
+      const audio = new Audio(audioUrl);
+      audio.volume = 0.7;
+      audioRef.current = audio;
+
+      // Set up event listeners
+      audio.onloadeddata = () => {
+        setLoadingAudio(null);
+        setPlayingJob(job.id);
+      };
+
+      audio.onended = () => {
+        setPlayingJob(null);
+        window.URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+      };
+
+      audio.onerror = () => {
+        setLoadingAudio(null);
+        window.URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+      };
+
+      // Start playing
+      await audio.play();
+    } catch (error) {
+      console.error('Audio playback failed:', error);
+      setLoadingAudio(null);
+    }
+  };
+
+  const stopJobAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    setPlayingJob(null);
   };
 
   const getStatusIcon = (status: TTSJob['status']) => {
@@ -170,17 +230,52 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                   </p>
                 </div>
               )}
+
+              {playingJob === job.id && (
+                <div className="bg-green-50 border border-green-200 rounded-md p-3 mb-4">
+                  <div className="flex items-center text-sm text-green-700">
+                    <div className="flex space-x-1 mr-2">
+                      <div className="w-1 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                      <div className="w-1 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '0.1s' }}></div>
+                      <div className="w-1 h-3 bg-green-500 rounded-full animate-pulse" style={{ animationDelay: '0.2s' }}></div>
+                    </div>
+                    <span>🎵 Now Playing Audio</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center space-x-2 ml-4">
               {job.status === 'completed' && job.filename && (
-                <button
-                  onClick={() => downloadFile(job.filename!)}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center text-sm"
-                >
-                  <Download className="h-4 w-4 mr-1" />
-                  Download
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      if (playingJob === job.id) {
+                        stopJobAudio();
+                      } else {
+                        playJobAudio(job);
+                      }
+                    }}
+                    disabled={loadingAudio === job.id}
+                    className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center text-sm"
+                  >
+                    {loadingAudio === job.id ? (
+                      <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                    ) : playingJob === job.id ? (
+                      <Pause className="h-4 w-4 mr-1" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-1" />
+                    )}
+                    {loadingAudio === job.id ? 'Loading...' : playingJob === job.id ? 'Pause' : 'Play'}
+                  </button>
+                  <button
+                    onClick={() => downloadFile(job.filename!)}
+                    className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center text-sm"
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    Download
+                  </button>
+                </>
               )}
 
               {job.status === 'pending' && (
