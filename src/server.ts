@@ -1,5 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
+import multer from 'multer';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as dotenv from 'dotenv';
@@ -11,9 +12,18 @@ dotenv.config();
 const app: express.Application = express();
 const PORT = process.env.PORT || 3000;
 
+// Configure multer for form-data handling
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fieldSize: 50 * 1024 * 1024, // 50MB for large text fields
+    fields: 10
+  }
+});
+
 // Middleware
 app.use(cors());
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Create uploads directory if it doesn't exist
@@ -202,74 +212,88 @@ app.get('/voices', (req: Request, res: Response) => {
   }
 });
 
-// Text-to-Speech conversion (Background Processing)
+// Helper function to process TTS job (used by both JSON and form-data endpoints)
+async function processTTSRequest(text: string, voiceName: string = 'Kore', filename?: string): Promise<JobResponse> {
+  // Validation
+  if (!text || text.trim().length === 0) {
+    throw new Error('Text is required and cannot be empty');
+  }
+
+  if (text.length > 32000) {
+    throw new Error('Text is too long. Maximum 32,000 characters allowed.');
+  }
+
+  const availableVoices = tts.getAvailableVoices();
+  if (!availableVoices.includes(voiceName)) {
+    throw new Error(`Invalid voice name. Available voices: ${availableVoices.join(', ')}`);
+  }
+
+  // Create job
+  const jobId = generateJobId();
+  const job: TTSJob = {
+    id: jobId,
+    status: 'pending',
+    text: text,
+    voiceName: voiceName,
+    filename: filename,
+    createdAt: new Date(),
+    progress: 0
+  };
+
+  // Store job and add to queue
+  jobs[jobId] = job;
+  processingQueue.push(jobId);
+
+  // Estimate processing time (rough calculation: ~1 second per 100 characters)
+  const estimatedSeconds = Math.max(5, Math.ceil(text.length / 100));
+  const estimatedTime = estimatedSeconds < 60 ? 
+    `${estimatedSeconds} seconds` : 
+    `${Math.ceil(estimatedSeconds / 60)} minutes`;
+
+  console.log(`📝 Job ${jobId} queued: ${text.length} characters, voice: ${voiceName}`);
+  console.log(`⏱️  Estimated processing time: ${estimatedTime}`);
+
+  return {
+    success: true,
+    message: 'TTS job queued successfully. Processing will begin shortly.',
+    jobId: jobId,
+    status: 'pending',
+    estimatedTime: estimatedTime
+  };
+}
+
+// Text-to-Speech conversion (Background Processing) - JSON
 app.post('/tts', async (req: Request, res: Response) => {
   try {
     const { text, voiceName = 'Kore', filename }: TTSRequest = req.body;
-
-    // Validation
-    if (!text || text.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Text is required and cannot be empty'
-      });
-    }
-
-    if (text.length > 32000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Text is too long. Maximum 32,000 characters allowed.'
-      });
-    }
-
-    const availableVoices = tts.getAvailableVoices();
-    if (!availableVoices.includes(voiceName)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid voice name. Available voices: ${availableVoices.join(', ')}`
-      });
-    }
-
-    // Create job
-    const jobId = generateJobId();
-    const job: TTSJob = {
-      id: jobId,
-      status: 'pending',
-      text: text,
-      voiceName: voiceName,
-      filename: filename,
-      createdAt: new Date(),
-      progress: 0
-    };
-
-    // Store job and add to queue
-    jobs[jobId] = job;
-    processingQueue.push(jobId);
-
-    // Estimate processing time (rough calculation: ~1 second per 100 characters)
-    const estimatedSeconds = Math.max(5, Math.ceil(text.length / 100));
-    const estimatedTime = estimatedSeconds < 60 ? 
-      `${estimatedSeconds} seconds` : 
-      `${Math.ceil(estimatedSeconds / 60)} minutes`;
-
-    console.log(`📝 Job ${jobId} queued: ${text.length} characters, voice: ${voiceName}`);
-    console.log(`⏱️  Estimated processing time: ${estimatedTime}`);
-
-    const response: JobResponse = {
-      success: true,
-      message: 'TTS job queued successfully. Processing will begin shortly.',
-      jobId: jobId,
-      status: 'pending',
-      estimatedTime: estimatedTime
-    };
-
+    const response = await processTTSRequest(text, voiceName, filename);
     res.json(response);
-
   } catch (error) {
-    console.error('❌ TTS Job Creation Error:', error);
-    res.status(500).json({
+    console.error('❌ TTS Job Creation Error (JSON):', error);
+    res.status(400).json({
       success: false,
-      message: 'Failed to create TTS job',
+      message: error instanceof Error ? error.message : 'Failed to create TTS job',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Text-to-Speech conversion (Background Processing) - Form Data
+app.post('/tts/form', upload.none(), async (req: Request, res: Response) => {
+  try {
+    const text = req.body.text;
+    const voiceName = req.body.voiceName || 'Kore';
+    const filename = req.body.filename;
+
+    console.log(`📝 Form-data TTS request received: ${text ? text.length : 0} characters`);
+    
+    const response = await processTTSRequest(text, voiceName, filename);
+    res.json(response);
+  } catch (error) {
+    console.error('❌ TTS Job Creation Error (Form-data):', error);
+    res.status(400).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Failed to create TTS job',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -428,75 +452,88 @@ app.delete('/job/:jobId', (req: Request, res: Response) => {
   }
 });
 
-// Text-to-Speech with base64 response (for direct audio data) - SYNCHRONOUS
+// Helper function for synchronous TTS processing
+async function processSyncTTS(text: string, voiceName: string = 'Kore'): Promise<TTSResponse> {
+  // Validation
+  if (!text || text.trim().length === 0) {
+    throw new Error('Text is required and cannot be empty');
+  }
+
+  if (text.length > 32000) {
+    throw new Error('Text is too long. Maximum 32,000 characters allowed.');
+  }
+
+  const availableVoices = tts.getAvailableVoices();
+  if (!availableVoices.includes(voiceName)) {
+    throw new Error(`Invalid voice name. Available voices: ${availableVoices.join(', ')}`);
+  }
+
+  console.log(`🎤 Processing TTS request (base64): ${text.length} characters, voice: ${voiceName}`);
+
+  // Generate temporary file
+  const tempFilename = `temp_${Date.now()}.wav`;
+  const tempPath = path.join(uploadsDir, tempFilename);
+
+  // Convert text to speech
+  await tts.textToSpeech(text, {
+    voiceName: voiceName,
+    outputFile: tempPath
+  });
+
+  // Read file and convert to base64
+  const audioBuffer = fs.readFileSync(tempPath);
+  const audioBase64 = audioBuffer.toString('base64');
+
+  // Clean up temp file
+  fs.unlinkSync(tempPath);
+
+  // Calculate stats
+  const fileSizeKB = Math.round(audioBuffer.length / 1024 * 10) / 10;
+  const audioDataSize = audioBuffer.length - 44;
+  const durationSeconds = Math.round((audioDataSize / (24000 * 2)) * 10) / 10;
+
+  console.log(`✅ TTS completed (base64): ${fileSizeKB}KB, ~${durationSeconds}s`);
+
+  return {
+    success: true,
+    message: 'Text-to-speech conversion completed successfully',
+    audioData: audioBase64,
+    duration: durationSeconds,
+    fileSize: fileSizeKB
+  };
+}
+
+// Text-to-Speech with base64 response (for direct audio data) - SYNCHRONOUS JSON
 app.post('/tts/base64', async (req: Request, res: Response) => {
   try {
     const { text, voiceName = 'Kore' }: TTSRequest = req.body;
-
-    // Validation (same as above)
-    if (!text || text.trim().length === 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Text is required and cannot be empty'
-      });
-    }
-
-    if (text.length > 32000) {
-      return res.status(400).json({
-        success: false,
-        message: 'Text is too long. Maximum 32,000 characters allowed.'
-      });
-    }
-
-    const availableVoices = tts.getAvailableVoices();
-    if (!availableVoices.includes(voiceName)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid voice name. Available voices: ${availableVoices.join(', ')}`
-      });
-    }
-
-    console.log(`🎤 Processing TTS request (base64): ${text.length} characters, voice: ${voiceName}`);
-
-    // Generate temporary file
-    const tempFilename = `temp_${Date.now()}.wav`;
-    const tempPath = path.join(uploadsDir, tempFilename);
-
-    // Convert text to speech
-    await tts.textToSpeech(text, {
-      voiceName: voiceName,
-      outputFile: tempPath
-    });
-
-    // Read file and convert to base64
-    const audioBuffer = fs.readFileSync(tempPath);
-    const audioBase64 = audioBuffer.toString('base64');
-
-    // Clean up temp file
-    fs.unlinkSync(tempPath);
-
-    // Calculate stats
-    const fileSizeKB = Math.round(audioBuffer.length / 1024 * 10) / 10;
-    const audioDataSize = audioBuffer.length - 44;
-    const durationSeconds = Math.round((audioDataSize / (24000 * 2)) * 10) / 10;
-
-    const response: TTSResponse = {
-      success: true,
-      message: 'Text-to-speech conversion completed successfully',
-      audioData: audioBase64,
-      duration: durationSeconds,
-      fileSize: fileSizeKB
-    };
-
-    console.log(`✅ TTS completed (base64): ${fileSizeKB}KB, ~${durationSeconds}s`);
-
+    const response = await processSyncTTS(text, voiceName);
     res.json(response);
-
   } catch (error) {
-    console.error('❌ TTS Error:', error);
-    res.status(500).json({
+    console.error('❌ TTS Error (JSON):', error);
+    res.status(400).json({
       success: false,
-      message: 'Text-to-speech conversion failed',
+      message: error instanceof Error ? error.message : 'Text-to-speech conversion failed',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Text-to-Speech with base64 response (for direct audio data) - SYNCHRONOUS Form Data
+app.post('/tts/base64/form', upload.none(), async (req: Request, res: Response) => {
+  try {
+    const text = req.body.text;
+    const voiceName = req.body.voiceName || 'Kore';
+
+    console.log(`📝 Form-data TTS base64 request received: ${text ? text.length : 0} characters`);
+    
+    const response = await processSyncTTS(text, voiceName);
+    res.json(response);
+  } catch (error) {
+    console.error('❌ TTS Error (Form-data):', error);
+    res.status(400).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Text-to-speech conversion failed',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -594,11 +631,13 @@ app.get('/', (req: Request, res: Response) => {
       'GET /': 'API documentation',
       'GET /health': 'Health check with job queue status',
       'GET /voices': 'Get available voices',
-      'POST /tts': 'Queue text-to-speech job (background processing)',
+      'POST /tts': 'Queue text-to-speech job (background processing) - JSON',
+      'POST /tts/form': 'Queue text-to-speech job (background processing) - Form Data',
       'GET /job/:jobId': 'Get job status and progress',
       'GET /jobs': 'List all jobs with filtering',
       'DELETE /job/:jobId': 'Cancel pending job',
-      'POST /tts/base64': 'Convert text to speech (synchronous, returns base64 audio)',
+      'POST /tts/base64': 'Convert text to speech (synchronous, returns base64 audio) - JSON',
+      'POST /tts/base64/form': 'Convert text to speech (synchronous, returns base64 audio) - Form Data',
       'GET /download/:filename': 'Download audio file',
       'GET /files': 'List generated audio files'
     },
@@ -657,11 +696,13 @@ app.listen(PORT, () => {
   console.log(`   GET    http://localhost:${PORT}/              - API documentation`);
   console.log(`   GET    http://localhost:${PORT}/health        - Health check + job queue status`);
   console.log(`   GET    http://localhost:${PORT}/voices        - Available voices`);
-  console.log(`   POST   http://localhost:${PORT}/tts           - Queue TTS job (background)`);
+  console.log(`   POST   http://localhost:${PORT}/tts           - Queue TTS job (background, JSON)`);
+  console.log(`   POST   http://localhost:${PORT}/tts/form      - Queue TTS job (background, Form-data)`);
   console.log(`   GET    http://localhost:${PORT}/job/:jobId    - Get job status & progress`);
   console.log(`   GET    http://localhost:${PORT}/jobs          - List all jobs`);
   console.log(`   DELETE http://localhost:${PORT}/job/:jobId    - Cancel pending job`);
-  console.log(`   POST   http://localhost:${PORT}/tts/base64    - TTS (synchronous, base64)`);
+  console.log(`   POST   http://localhost:${PORT}/tts/base64    - TTS (synchronous, base64, JSON)`);
+  console.log(`   POST   http://localhost:${PORT}/tts/base64/form - TTS (synchronous, base64, Form-data)`);
   console.log(`   GET    http://localhost:${PORT}/files         - List generated files`);
   console.log(`   GET    http://localhost:${PORT}/download/:file - Download audio file`);
   console.log('');

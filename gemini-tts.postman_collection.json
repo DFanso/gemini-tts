@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "0604d1ae-97b3-4fbf-aec0-1291e22d97c3",
 		"name": "Gemini TTS API v2.0",
-		"description": "Text-to-Speech API using Google Gemini with Background Job Processing. Supports 30 voices and 24 languages including Sinhala. Features real-time job tracking and progress monitoring.",
+		"description": "Text-to-Speech API using Google Gemini with Background Job Processing. Supports 30 voices and 24 languages including Sinhala. Features real-time job tracking and progress monitoring. Now includes Form-Data support for special characters.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
 		"_exporter_id": "17849869",
 		"_collection_link": "https://codex-api-testing.postman.co/workspace/Project~2f154a0f-22bf-484b-b84b-bebacc92e619/collection/17849869-0604d1ae-97b3-4fbf-aec0-1291e22d97c3?action=share&source=collection_link&creator=17849869"
@@ -63,7 +63,7 @@
 			"response": []
 		},
 		{
-			"name": "Queue TTS Job (Background)",
+			"name": "Queue TTS Job (Background JSON)",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -74,7 +74,7 @@
 				],
 				"body": {
 					"mode": "raw",
-					"raw": "{\n  \"text\": \"ද්වීපයෙනි, මා ඉදිරියෙහි නිශ්ශබ්දව සිටිව්; ජනයෝ තමුන්ගේ සවිය අලුත්කරගන්න.\",\n  \"voiceName\": \"Kore\",\n  \"filename\": \"sinhala_background_job\"\n}",
+					"raw": "{\n  \"text\": \"Hello, this is a test message for background processing.\",\n  \"voiceName\": \"Kore\",\n  \"filename\": \"background_job_json\"\n}",
 					"options": {
 						"raw": {
 							"language": "json"
@@ -90,7 +90,46 @@
 						"tts"
 					]
 				},
-				"description": "Queue a TTS job for background processing. Returns immediately with job ID and estimated processing time."
+				"description": "Queue a TTS job for background processing using JSON. Returns immediately with job ID and estimated processing time."
+			},
+			"response": []
+		},
+		{
+			"name": "Queue TTS Job (Background Form-Data)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "text",
+							"value": "ද්වීපයෙනි, මා ඉදිරියෙහි නිශ්ශබ්දව සිටිව්; ජනයෝ තමුන්ගේ සවිය අලුත්කරගන්න.\nමා ඉදිරියට ඇවිත් විනිශ්චය කරමු; අප එකට ළඟට ඇවිත් තර්ක කරමු.\nපෙරදිග සිට ධර්මිෂ්ඨයා අවදි කළේ කවුද? ඔහුගේ පාදවලට ඔහු කැඳවනසේක; ජාතීන් ඔහු ඉදිරියෙහි භාර දී, රජවරුන්ට ඔහු ආධිපත්‍යකරනසේක; ඔහුගේ කඩුවෙන් ඔවුන් දූවිලි මෙන්ද ඔහුගේ දුන්නෙන් පහත් කරන පිදුරු මෙන්ද කරනසේක.",
+							"type": "text"
+						},
+						{
+							"key": "voiceName",
+							"value": "Kore",
+							"type": "text"
+						},
+						{
+							"key": "filename",
+							"value": "sinhala_form_data",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts/form",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts",
+						"form"
+					]
+				},
+				"description": "Queue a TTS job for background processing using Form-Data. Perfect for Sinhala text with special characters and line breaks."
 			},
 			"response": []
 		},
@@ -164,7 +203,7 @@
 			"response": []
 		},
 		{
-			"name": "Text to Speech (Synchronous Base64)",
+			"name": "Text to Speech (Synchronous Base64 JSON)",
 			"request": {
 				"method": "POST",
 				"header": [
@@ -193,6 +232,41 @@
 					]
 				},
 				"description": "Convert text to speech synchronously and return base64 encoded audio data directly. Use for short texts only."
+			},
+			"response": []
+		},
+		{
+			"name": "Text to Speech (Synchronous Base64 Form-Data)",
+			"request": {
+				"method": "POST",
+				"header": [],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "text",
+							"value": "ආයුබෝවන්! මේ සිංහල භාෂාවෙන් ලියන ලද කෙටි පණිවිඩයකි.",
+							"type": "text"
+						},
+						{
+							"key": "voiceName",
+							"value": "Puck",
+							"type": "text"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts/base64/form",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts",
+						"base64",
+						"form"
+					]
+				},
+				"description": "Convert text to speech synchronously using Form-Data and return base64 encoded audio data. Perfect for Sinhala text with special characters."
 			},
 			"response": []
 		},
@@ -234,66 +308,80 @@
 			"response": []
 		},
 		{
-			"name": "Large Text Background Job",
+			"name": "Large Sinhala Text (Form-Data)",
 			"request": {
 				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
+				"header": [],
 				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"text\": \"This is a comprehensive demonstration of the Gemini TTS API's background job processing capabilities. The system is designed to handle large texts efficiently by processing them in the background, allowing users to submit requests and receive immediate responses with job identifiers. Users can then monitor the progress of their jobs in real-time and download the completed audio files when ready. This approach significantly improves user experience by eliminating long wait times for large text processing. The system supports up to 32,000 characters of text and can convert it into high-quality speech using various voice options. The generated audio is in WAV format with 24kHz sample rate, 16-bit depth, and mono channel configuration, ensuring excellent audio quality for all use cases.\",\n  \"voiceName\": \"Zephyr\",\n  \"filename\": \"large_text_demo\"\n}",
-					"options": {
-						"raw": {
-							"language": "json"
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "text",
+							"value": "යෙසායා 42\n\nමා විසින් උසුලන මාගේ මෙහෙකරුවා මොහුය; මාගේ සිතට ප්‍රියවූ මාගේ තෝරාගත් තැනැත්තා මොහුය. මාගේ ආත්මය ඔහු කෙරෙහි තැබීමි; ඔහු ජාතීන්ට විනිශ්චය ගෙන එන්නේය.\n\nඔහු මොර නොගසන්නේය, ස්වකීය හඬ නොනගන්නේය, වීථියෙහි එය ඇසෙන්ට නොදෙන්නේය.\n\nඔහු තැළුණු බටලීයක් නොබිඳින්නේය, දුම්ගහන පහන්තිරයක් නොනිවන්නේය. ඔහු සැබෑවෙන් විනිශ්චය ප්‍රකාශකරන්නේය.\n\nපොළොවෙහි විනිශ්චය පිහිටුවන තුරු ඔහු දුර්වල නොවන්නේය, අධෛර්ය නොවන්නේය. ද්වීපයෝ ඔහුගේ ව්‍යවස්ථාව ගැන බලා සිටින්නෝය.",
+							"type": "text"
+						},
+						{
+							"key": "voiceName",
+							"value": "Kore",
+							"type": "text"
+						},
+						{
+							"key": "filename",
+							"value": "isaiah_42_sinhala",
+							"type": "text"
 						}
-					}
+					]
 				},
 				"url": {
-					"raw": "{{baseUrl}}/tts",
+					"raw": "{{baseUrl}}/tts/form",
 					"host": [
 						"{{baseUrl}}"
 					],
 					"path": [
-						"tts"
+						"tts",
+						"form"
 					]
 				},
-				"description": "Example with large text to demonstrate background processing benefits"
+				"description": "Example with large Sinhala text (Isaiah 42) using Form-Data to handle special characters and line breaks properly."
 			},
 			"response": []
 		},
 		{
-			"name": "Multi-language Job (Sinhala)",
+			"name": "Multi-Voice Test (Form-Data)",
 			"request": {
 				"method": "POST",
-				"header": [
-					{
-						"key": "Content-Type",
-						"value": "application/json"
-					}
-				],
+				"header": [],
 				"body": {
-					"mode": "raw",
-					"raw": "{\n  \"text\": \"ආයුබෝවන්! මේ සිංහල භාෂාවෙන් ලියන ලද පණිවිඩයකි. ගෙමිනි ටීටීඑස් සේවාව සිංහල භාෂාව සහාය කරයි. පසුබිම් කාර්ය සැකසුම් පද්ධතිය මගින් විශාල පෙළ ප්‍රමාණයන් කාර්යක්ෂමව සැකසිය හැකිය.\",\n  \"voiceName\": \"Kore\",\n  \"filename\": \"sinhala_multilang_test\"\n}",
-					"options": {
-						"raw": {
-							"language": "json"
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "text",
+							"value": "මෙය විවිධ හඬවල් පරීක්ෂා කිරීම සඳහා වන පණිවිඩයකි. ගෙමිනි ටීටීඑස් සේවාව විවිධ හඬ විකල්ප 30ක් සපයයි.",
+							"type": "text"
+						},
+						{
+							"key": "voiceName",
+							"value": "Zephyr",
+							"type": "text"
+						},
+						{
+							"key": "filename",
+							"value": "multi_voice_test",
+							"type": "text"
 						}
-					}
+					]
 				},
 				"url": {
-					"raw": "{{baseUrl}}/tts",
+					"raw": "{{baseUrl}}/tts/form",
 					"host": [
 						"{{baseUrl}}"
 					],
 					"path": [
-						"tts"
+						"tts",
+						"form"
 					]
 				},
-				"description": "Example demonstrating Sinhala language support with background processing"
+				"description": "Test different voices with Sinhala text using Form-Data for proper character handling."
 			},
 			"response": []
 		}
