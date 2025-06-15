@@ -1,0 +1,265 @@
+{
+	"info": {
+		"_postman_id": "0604d1ae-97b3-4fbf-aec0-1291e22d97c3",
+		"name": "Gemini TTS API",
+		"description": "Text-to-Speech API using Google Gemini with 30 available voices. Supports Sinhala and other languages.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "17849869",
+		"_collection_link": "https://codex-api-testing.postman.co/workspace/Project~2f154a0f-22bf-484b-b84b-bebacc92e619/collection/17849869-0604d1ae-97b3-4fbf-aec0-1291e22d97c3?action=share&source=collection_link&creator=17849869"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/health",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"health"
+					]
+				},
+				"description": "Check if the API server is running and healthy"
+			},
+			"response": []
+		},
+		{
+			"name": "Get API Documentation",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						""
+					]
+				},
+				"description": "Get API documentation and available endpoints"
+			},
+			"response": []
+		},
+		{
+			"name": "Get Available Voices",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/voices",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"voices"
+					]
+				},
+				"description": "Get list of all 30 available voices for TTS"
+			},
+			"response": []
+		},
+		{
+			"name": "Text to Speech (File)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"ද්වීපයෙනි, මා ඉදිරියෙහි නිශ්ශබ්දව සිටිව්; ජනයෝ තමුන්ගේ සවිය අලුත්කරගන්න.\",\n  \"voiceName\": \"Kore\",\n  \"filename\": \"sinhala_text\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts"
+					]
+				},
+				"description": "Convert text to speech and save as WAV file. Returns file information and download URL."
+			},
+			"response": []
+		},
+		{
+			"name": "Text to Speech (Base64)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"Hello, this is a test of the Gemini TTS API.\",\n  \"voiceName\": \"Puck\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts/base64",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts",
+						"base64"
+					]
+				},
+				"description": "Convert text to speech and return base64 encoded audio data directly in response."
+			},
+			"response": []
+		},
+		{
+			"name": "List Generated Files",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/files",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"files"
+					]
+				},
+				"description": "Get list of all generated audio files with metadata"
+			},
+			"response": []
+		},
+		{
+			"name": "Download Audio File",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/download/{{filename}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"download",
+						"{{filename}}"
+					]
+				},
+				"description": "Download a specific audio file by filename"
+			},
+			"response": []
+		},
+		{
+			"name": "TTS with Different Voice (Zephyr)",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"This is a demonstration of the Zephyr voice in the Gemini TTS system.\",\n  \"voiceName\": \"Zephyr\",\n  \"filename\": \"zephyr_demo\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts"
+					]
+				},
+				"description": "Example using the Zephyr voice"
+			},
+			"response": []
+		},
+		{
+			"name": "TTS Long Text Example",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n  \"text\": \"This is a longer text example to demonstrate the capabilities of the Gemini TTS API. The system can handle up to 32,000 characters of text and convert it into high-quality speech using various voice options. The generated audio is in WAV format with 24kHz sample rate, 16-bit depth, and mono channel configuration.\",\n  \"voiceName\": \"Kore\",\n  \"filename\": \"long_text_example\"\n}",
+					"options": {
+						"raw": {
+							"language": "json"
+						}
+					}
+				},
+				"url": {
+					"raw": "{{baseUrl}}/tts",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"tts"
+					]
+				},
+				"description": "Example with longer text to test the system's capabilities"
+			},
+			"response": []
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		},
+		{
+			"listen": "test",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					""
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "filename",
+			"value": "sinhala_text_audio.wav",
+			"type": "string",
+			"description": "Example filename for download endpoint"
+		}
+	]
+}
