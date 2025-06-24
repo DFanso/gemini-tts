@@ -72,31 +72,37 @@ interface JobQueue {
 // In-memory job storage (in production, use Redis or database)
 const jobs: JobQueue = {};
 const processingQueue: string[] = [];
-let isProcessing = false;
+const MAX_CONCURRENT_JOBS = parseInt(process.env.MAX_CONCURRENT_JOBS || '3', 10);
+let activeJobs = 0;
 
 // Generate unique job ID
 function generateJobId(): string {
   return `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 }
 
-// Background job processor
-async function processJobQueue(): Promise<void> {
-  if (isProcessing || processingQueue.length === 0) {
-    return;
+// Background job scheduler
+function processJobQueue(): void {
+  while (activeJobs < MAX_CONCURRENT_JOBS && processingQueue.length > 0) {
+    const jobId = processingQueue.shift();
+    if (jobId && jobs[jobId]) {
+      activeJobs++;
+      // Execute job asynchronously
+      executeJob(jobId);
+    }
   }
+}
 
-  isProcessing = true;
-  const jobId = processingQueue.shift();
-  
-  if (!jobId || !jobs[jobId]) {
-    isProcessing = false;
-    return;
-  }
-
+// Background job executor
+async function executeJob(jobId: string) {
   const job = jobs[jobId];
-  
+  if (!job) {
+    activeJobs--;
+    processJobQueue(); // Try to process next job
+    return;
+  }
+
   try {
-    console.log(`🔄 Starting job ${jobId}: ${job.text.length} characters, voice: ${job.voiceName}`);
+    console.log(`🔄 Starting job ${jobId} (${activeJobs}/${MAX_CONCURRENT_JOBS}): ${job.text.length} characters, voice: ${job.voiceName}`);
     
     // Update job status
     job.status = 'processing';
@@ -145,16 +151,20 @@ async function processJobQueue(): Promise<void> {
     job.completedAt = new Date();
     job.error = error instanceof Error ? error.message : 'Unknown error';
     job.progress = 0;
+  } finally {
+    activeJobs--;
+    // Schedule next job if any
+    processJobQueue();
   }
-
-  isProcessing = false;
-  
-  // Process next job in queue
-  setTimeout(() => processJobQueue(), 100);
 }
 
-// Start job processor
-setInterval(() => processJobQueue(), 1000);
+// Start job processor as a fallback
+setInterval(() => {
+  if (processingQueue.length > 0) {
+    console.log(`Scheduler check: ${processingQueue.length} jobs pending, ${activeJobs} active.`);
+    processJobQueue();
+  }
+}, 5000);
 
 // Interfaces
 interface TTSRequest {
@@ -243,6 +253,9 @@ async function processTTSRequest(text: string, voiceName: string = 'Kore', filen
   // Store job and add to queue
   jobs[jobId] = job;
   processingQueue.push(jobId);
+
+  // Trigger queue processing
+  processJobQueue();
 
   // Estimate processing time (rough calculation: ~1 second per 100 characters)
   const estimatedSeconds = Math.max(5, Math.ceil(text.length / 100));
