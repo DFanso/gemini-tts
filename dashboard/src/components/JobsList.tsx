@@ -13,7 +13,8 @@ import {
   FileText,
   Play,
   Pause,
-  RotateCcw
+  RotateCcw,
+  File
 } from 'lucide-react';
 import { ttsApi } from '../services/api';
 import type { TTSJob } from '../types/api';
@@ -203,7 +204,7 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                 )}
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                 <div className="flex items-center text-sm text-gray-600">
                   <FileText className="h-4 w-4 mr-2" />
                   <span>{job.textLength} characters</span>
@@ -211,6 +212,16 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                 <div className="flex items-center text-sm text-gray-600">
                   <User className="h-4 w-4 mr-2" />
                   <span>Voice: {job.voiceName}</span>
+                </div>
+                <div className="flex items-center text-sm text-gray-600">
+                  <File className="h-4 w-4 mr-2" />
+                  <span className="truncate" title={job.filename || 'Not generated'}>
+                    {job.filename ? (
+                      <span className="font-medium text-blue-600">{job.filename}</span>
+                    ) : (
+                      <span className="italic text-gray-400">Not generated</span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex items-center text-sm text-gray-600">
                   <Calendar className="h-4 w-4 mr-2" />
@@ -234,10 +245,18 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
               )}
 
               {job.status === 'completed' && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 text-sm text-gray-600">
-                  <div>Duration: {formatDuration(job.duration)}</div>
-                  <div>File Size: {formatFileSize(job.fileSize)}</div>
-                  <div>Completed: {job.completedAt ? new Date(job.completedAt).toLocaleTimeString() : 'N/A'}</div>
+                <div className="bg-green-50 border border-green-200 rounded-md p-3 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 text-sm text-green-700">
+                    <div className="flex items-center">
+                      <File className="h-4 w-4 mr-2" />
+                      <span className="font-medium truncate" title={job.filename}>
+                        📁 {job.filename}
+                      </span>
+                    </div>
+                    <div>Duration: {formatDuration(job.duration)}</div>
+                    <div>Size: {formatFileSize(job.fileSize)}</div>
+                    <div>Completed: {job.completedAt ? new Date(job.completedAt).toLocaleTimeString() : 'N/A'}</div>
+                  </div>
                 </div>
               )}
 
