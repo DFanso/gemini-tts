@@ -63,6 +63,8 @@ interface TTSJob {
   startedAt?: Date;
   completedAt?: Date;
   progress?: number; // 0-100
+  retryCount?: number; // Track number of retries
+  originalJobId?: string; // Reference to original job if this is a retry
 }
 
 interface JobQueue {
@@ -340,7 +342,9 @@ app.get('/job/:jobId', (req: Request, res: Response) => {
         fileSize: job.fileSize,
         error: job.error,
         textLength: job.text.length,
-        voiceName: job.voiceName
+        voiceName: job.voiceName,
+        retryCount: job.retryCount,
+        originalJobId: job.originalJobId
       }
     };
 
@@ -391,7 +395,9 @@ app.get('/jobs', (req: Request, res: Response) => {
         fileSize: job.fileSize,
         textLength: job.text.length,
         voiceName: job.voiceName,
-        error: job.error
+        error: job.error,
+        retryCount: job.retryCount,
+        originalJobId: job.originalJobId
       })),
       count: jobList.length,
       queueLength: processingQueue.length
@@ -460,6 +466,84 @@ app.delete('/job/:jobId', (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: 'Failed to cancel job',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+});
+
+// Retry failed job
+app.post('/job/:jobId/retry', (req: Request, res: Response) => {
+  try {
+    const jobId = req.params.jobId;
+    const originalJob = jobs[jobId];
+
+    if (!originalJob) {
+      return res.status(404).json({
+        success: false,
+        message: 'Job not found'
+      });
+    }
+
+    if (originalJob.status !== 'failed') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only failed jobs can be retried'
+      });
+    }
+
+    // Check retry limit (max 3 retries)
+    const currentRetryCount = originalJob.retryCount || 0;
+    if (currentRetryCount >= 3) {
+      return res.status(400).json({
+        success: false,
+        message: 'Maximum retry limit reached (3 retries)'
+      });
+    }
+
+    // Create new job with same parameters but new ID
+    const newJobId = generateJobId();
+    const retryJob: TTSJob = {
+      id: newJobId,
+      status: 'pending',
+      text: originalJob.text,
+      voiceName: originalJob.voiceName,
+      filename: originalJob.filename,
+      createdAt: new Date(),
+      progress: 0,
+      retryCount: currentRetryCount + 1,
+      originalJobId: originalJob.originalJobId || originalJob.id
+    };
+
+    // Store job and add to queue
+    jobs[newJobId] = retryJob;
+    processingQueue.push(newJobId);
+
+    // Trigger queue processing
+    processJobQueue();
+
+    // Estimate processing time
+    const estimatedSeconds = Math.max(5, Math.ceil(originalJob.text.length / 100));
+    const estimatedTime = estimatedSeconds < 60 ? 
+      `${estimatedSeconds} seconds` : 
+      `${Math.ceil(estimatedSeconds / 60)} minutes`;
+
+    console.log(`🔄 Job ${originalJob.id} retried as ${newJobId} (attempt ${currentRetryCount + 1}/3)`);
+
+    res.json({
+      success: true,
+      message: `Job retried successfully (attempt ${currentRetryCount + 1}/3)`,
+      jobId: newJobId,
+      originalJobId: originalJob.id,
+      retryCount: currentRetryCount + 1,
+      status: 'pending',
+      estimatedTime: estimatedTime
+    });
+
+  } catch (error) {
+    console.error('❌ Job Retry Error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to retry job',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }
@@ -649,6 +733,7 @@ app.get('/', (req: Request, res: Response) => {
       'GET /job/:jobId': 'Get job status and progress',
       'GET /jobs': 'List all jobs with filtering',
       'DELETE /job/:jobId': 'Cancel pending job',
+      'POST /job/:jobId/retry': 'Retry failed job (max 3 retries)',
       'POST /tts/base64': 'Convert text to speech (synchronous, returns base64 audio) - JSON',
       'POST /tts/base64/form': 'Convert text to speech (synchronous, returns base64 audio) - Form Data',
       'GET /download/:filename': 'Download audio file',
@@ -714,6 +799,7 @@ app.listen(PORT, () => {
   console.log(`   GET    http://localhost:${PORT}/job/:jobId    - Get job status & progress`);
   console.log(`   GET    http://localhost:${PORT}/jobs          - List all jobs`);
   console.log(`   DELETE http://localhost:${PORT}/job/:jobId    - Cancel pending job`);
+  console.log(`   POST   http://localhost:${PORT}/job/:jobId/retry - Retry failed job`);
   console.log(`   POST   http://localhost:${PORT}/tts/base64    - TTS (synchronous, base64, JSON)`);
   console.log(`   POST   http://localhost:${PORT}/tts/base64/form - TTS (synchronous, base64, Form-data)`);
   console.log(`   GET    http://localhost:${PORT}/files         - List generated files`);

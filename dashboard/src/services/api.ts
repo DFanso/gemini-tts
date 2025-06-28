@@ -3,6 +3,7 @@ import type {
   JobsResponse, 
   JobResponse, 
   JobCreateResponse, 
+  JobRetryResponse,
   HealthResponse, 
   VoicesResponse, 
   FilesResponse 
@@ -74,6 +75,12 @@ export const ttsApi = {
   // Cancel job
   cancelJob: async (jobId: string): Promise<{ success: boolean; message: string }> => {
     const response = await api.delete(`/job/${jobId}`);
+    return response.data;
+  },
+
+  // Retry failed job
+  retryJob: async (jobId: string): Promise<JobRetryResponse> => {
+    const response = await api.post(`/job/${jobId}/retry`);
     return response.data;
   },
 

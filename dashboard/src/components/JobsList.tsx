@@ -12,7 +12,8 @@ import {
   User,
   FileText,
   Play,
-  Pause
+  Pause,
+  RotateCcw
 } from 'lucide-react';
 import { ttsApi } from '../services/api';
 import type { TTSJob } from '../types/api';
@@ -32,6 +33,17 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
     mutationFn: ttsApi.cancelJob,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    },
+  });
+
+  const retryJobMutation = useMutation({
+    mutationFn: ttsApi.retryJob,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['jobs'] });
+      console.log(`✅ Job retried successfully: ${data.message}`);
+    },
+    onError: (error) => {
+      console.error('❌ Failed to retry job:', error);
     },
   });
 
@@ -183,6 +195,12 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                 <span className="ml-2 text-sm text-gray-500">
                   Job ID: {job.id.split('_')[1]}
                 </span>
+                {job.retryCount && (
+                  <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                    <RotateCcw className="h-3 w-3 mr-1" />
+                    Retry {job.retryCount}/3
+                  </span>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
@@ -228,6 +246,14 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                   <p className="text-sm text-red-700">
                     <strong>Error:</strong> {job.error}
                   </p>
+                  {job.retryCount && (
+                    <p className="text-xs text-red-600 mt-1">
+                      Retry attempt: {job.retryCount}/3
+                      {job.retryCount >= 3 && (
+                        <span className="ml-2 font-medium">- Maximum retries reached</span>
+                      )}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -286,6 +312,21 @@ export const JobsList: React.FC<JobsListProps> = ({ jobs, isLoading }) => {
                 >
                   <X className="h-4 w-4 mr-1" />
                   Cancel
+                </button>
+              )}
+
+              {job.status === 'failed' && (job.retryCount || 0) < 3 && (
+                <button
+                  onClick={() => retryJobMutation.mutate(job.id)}
+                  disabled={retryJobMutation.isPending}
+                  className="bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center text-sm"
+                >
+                  {retryJobMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4 mr-1" />
+                  )}
+                  {retryJobMutation.isPending ? 'Retrying...' : 'Retry'}
                 </button>
               )}
 

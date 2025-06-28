@@ -12,6 +12,8 @@ export interface TTSJob {
   textLength: number;
   voiceName: string;
   error?: string;
+  retryCount?: number;
+  originalJobId?: string;
 }
 
 export interface JobsResponse {
@@ -30,6 +32,16 @@ export interface JobCreateResponse {
   success: boolean;
   message: string;
   jobId: string;
+  status: string;
+  estimatedTime: string;
+}
+
+export interface JobRetryResponse {
+  success: boolean;
+  message: string;
+  jobId: string;
+  originalJobId: string;
+  retryCount: number;
   status: string;
   estimatedTime: string;
 }

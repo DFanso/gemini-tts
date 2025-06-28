@@ -260,6 +260,65 @@ Get list of all generated audio files.
 }
 ```
 
+## Retry Failed Jobs
+
+### POST /job/:jobId/retry
+
+Retry a failed TTS job with the same parameters.
+
+**Features:**
+- Maximum 3 retry attempts per job
+- Creates a new job with a new ID
+- Maintains reference to original job
+- Tracks retry count
+- Same text, voice, and filename as original job
+
+**Request:**
+```bash
+curl -X POST http://localhost:3000/job/job_1234567890_abc123/retry
+```
+
+**Response (Success):**
+```json
+{
+  "success": true,
+  "message": "Job retried successfully (attempt 2/3)",
+  "jobId": "job_1234567891_def456",
+  "originalJobId": "job_1234567890_abc123", 
+  "retryCount": 2,
+  "status": "pending",
+  "estimatedTime": "30 seconds"
+}
+```
+
+**Response (Error - Max Retries):**
+```json
+{
+  "success": false,
+  "message": "Maximum retry limit reached (3 retries)"
+}
+```
+
+**Response (Error - Not Failed):**
+```json
+{
+  "success": false,
+  "message": "Only failed jobs can be retried"
+}
+```
+
+**Job Status Fields:**
+- `retryCount`: Number of retry attempts (1-3)
+- `originalJobId`: ID of the original job (if this is a retry)
+
+**Retry Logic:**
+1. Only failed jobs can be retried
+2. Maximum 3 retry attempts per original job
+3. Each retry creates a new job with new ID
+4. Retry jobs inherit all parameters from original job
+5. Retry count is incremented and tracked
+6. Original job ID is preserved across retries
+
 ## Usage Examples
 
 ### Background Job Processing Workflow
